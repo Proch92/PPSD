@@ -1,0 +1,16 @@
+applicazione post-effect su gif animate
+ - ogni nodo lavora su un frame
+ - openCL?
+ - python gls-like scripts
+algoritmo genetico
+ - generazione random
+ - classificazione
+ - eliminazione dei peggiori
+ - incrocio genetico dei migliori
+ - (mutazione)
+ - ripopolazione (figli)
+ - classificazione....
+
+possibile impiego per algoritmo genetico
+ - ricerca della traiettoria ideale in una pista
+	- gene: gli angoli devono essere il più piccoli possibile
