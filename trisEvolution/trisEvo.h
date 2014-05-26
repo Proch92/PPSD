@@ -4,9 +4,10 @@
 #include "time.h"
 #include "mpich/mpi.h"
 #include <omp.h>
+#include <iostream>
 
 #define EVENTS 19683 //3^9
-#define PLAYERS_PER_ROOM 20
+#define PLAYERS_PER_ROOM 40
 #define MAX_MUTATION_TIMER 500
 #define NAME_BUFFER_SIZE 50
 
@@ -16,10 +17,15 @@
 #define B_WINS 2
 #define DRAW 3
 
+using namespace std;
+
 typedef int gameState;
 
 char checkGameState(gameState);
 char getPositionsFromState(gameState, char*);
+char humanMove(gameState);
+bool freeSpace(gameState, char);
+void printField(gameState);
 
 class Player {
 public:
@@ -43,6 +49,7 @@ public:
 	void startHungerGames(int);
 	void makePairings();
 	int startGames(int*, int*);
+	Player* getChampion();
 private:
 	int localPopulation;
 	Player players[PLAYERS_PER_ROOM];

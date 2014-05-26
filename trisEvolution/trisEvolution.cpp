@@ -37,9 +37,42 @@ int main(int argc, char** argv) {
 
 	srand(seed);
 
-	printf("%d: starting room\n", id);
 	Room room;
 	room.startHungerGames(generationLimit);
+
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	Player *champion = room.getChampion();
+	printf("%d: the Champion has %d wins under his belt\n", id, champion->wins);
+
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	if(id==0) {
+		printf("wanna play against the champion?(y/n)\n");
+		char response;
+		cin >> response;
+		if(response == 'y' || response == 's') {
+			char turn = rand()%2;
+			char result;
+			char move;
+			gameState actual = 0;
+			do {
+				if(turn == 1) { //champion
+					move = champion->makeMove(actual); //move is a number from 0 to 8
+					actual += pow(3, move) * (turn+1); //everything is in base 3
+				}
+				else { //you
+					printf("your turn!\n");
+					printField(actual);
+					move = humanMove(actual);
+					actual += pow(3, move) * (turn+1); //everything is in base 3
+				}
+				turn ^= 1;
+			} while((result = checkGameState(actual)) == GAME_OPEN);
+
+			printf("result: %d\n", result);
+		}
+	}
 
 	MPI_Barrier(MPI_COMM_WORLD);
 
@@ -64,8 +97,13 @@ void Room::startHungerGames(int generationLimit) {
 	short mutationTimer = MAX_MUTATION_TIMER;
 	char w1, w2;
 	do {
-		if(generation % 100 == 0)
-			printf("%d:generation %d\n", id, generation);
+		if(generation % 100 == 0 && generation != 0) {
+			printf("%d: migrations\n", id, generation);
+			char* genesToSend = getChampion()->decision;
+			for(int i=0; i!=numNodes; i++)
+				MPI_Send(genesToSend, EVENTS, MPI_CHAR, (id + i) % numNodes, MPI_ANY_TAG, MPI_COMM_WORLD);
+			
+		}
 
 		notdraw = startGames(winners, losers);
 		
@@ -164,6 +202,19 @@ int Room::startGames(int *winners, int *losers) {
 	draws = d;
 
 	return (PLAYERS_PER_ROOM / 2) - d;
+}
+
+Player* Room::getChampion() {
+	int max = 0;
+	int maxPos = 0;
+	for(int i=0; i!=PLAYERS_PER_ROOM; i++) {
+		if(players[i].wins > max) {
+			max = players[i].wins;
+			maxPos = i;
+		}
+	}
+
+	return &(players[maxPos]);
 }
 
 //Player
@@ -276,6 +327,41 @@ char getPositionsFromState(gameState state, char *positions) {
 	return freePos;
 }
 
+void printField(gameState state) {
+	char field[9];
+	getPositionsFromState(state, field);
+
+	for(int i=0; i!=3; i++) {
+		for(int j=0; j!=3; j++)
+			printf("%d ", field[i*3 + j]);
+
+		printf("\n");
+	}
+}
+
+bool freeSpace(gameState state, char choice) {
+	char field[9];
+
+	getPositionsFromState(state, field);
+
+	return field[choice] == 0;
+}
+
+char humanMove(gameState state) {
+	bool done = false;
+
+	int choice;
+	do {
+		printf("make a choice: (1..9)\n");
+		cin >> choice;
+		printf("choice: %d\n", choice);
+		if(choice > 0 && choice < 10 && freeSpace(state, choice-1))
+			done = true;
+	} while(!done);
+
+	return choice-1;
+}
+
 char checkGameState(gameState state) {
 	char freePos;
 	char positions[9];
@@ -319,6 +405,8 @@ char checkGameState(gameState state) {
 			return 2;
 	}
 	//check diagonals
+	acount = 0;
+	bcount = 0;
 	for(i=0; i!=3; i++) {
 		cell = positions[i*4];
 		if(cell == 1)
@@ -331,6 +419,8 @@ char checkGameState(gameState state) {
 	else if(bcount == 3)
 		return 2;
 
+	acount = 0;
+	bcount = 0;
 	for(i=0; i!=3; i++) {
 		cell = positions[i*2 + 2];
 		if(cell == 1)
