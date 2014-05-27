@@ -48,40 +48,45 @@ int main(int argc, char** argv) {
 	MPI_Barrier(MPI_COMM_WORLD);
 
 	if(id==0) {
-		printf("wanna play against the champion?(y/n)\n");
-		char response;
-		cin >> response;
-		if(response == 'y' || response == 's') {
-			char turn = rand()%2;
-			char result;
-			char move;
-			gameState actual = 0;
-			do {
-				if(turn == 1) { //champion
-					move = champion->makeMove(actual); //move is a number from 0 to 8
-					actual += pow(3, move) * (turn+1); //everything is in base 3
-				}
-				else { //you
-					printf("your turn!\n");
-					printField(actual);
-					move = humanMove(actual);
-					actual += pow(3, move) * (turn+1); //everything is in base 3
-				}
-				turn ^= 1;
-			} while((result = checkGameState(actual)) == GAME_OPEN);
+		bool again = true;
+		do {
+			printf("wanna play against the champion?(y/n)\n");
+			char response;
+			cin >> response;
+			if(response == 'y' || response == 's') {
+				char turn = rand()%2;
+				char result;
+				char move;
+				gameState actual = 0;
+				do {
+					if(turn == 1) { //champion
+						move = champion->makeMove(actual); //move is a number from 0 to 8
+						actual += pow(3, move) * (turn+1); //everything is in base 3
+					}
+					else { //you
+						printf("your turn!\n");
+						printField(actual);
+						move = humanMove(actual);
+						actual += pow(3, move) * (turn+1); //everything is in base 3
+					}
+					turn ^= 1;
+				} while((result = checkGameState(actual)) == GAME_OPEN);
 
-			printf("result: %d\n", result);
-		}
+				printf("result: %d\n", result);
+			}
+			else again = false;
+		} while(again);
 	}
 
 	MPI_Barrier(MPI_COMM_WORLD);
+
+	MPI_Finalize();
 
 	return 0;
 }
 
 //Room
 Room::Room() {
-	generation = 0;
 }
 
 Room::~Room() {
@@ -92,27 +97,64 @@ void Room::startHungerGames(int generationLimit) {
 	int winners[PLAYERS_PER_ROOM/2];
 	int losers[PLAYERS_PER_ROOM/2];
 
+	generation = 0;
 	int notdraw;
 	int i;
 	short mutationTimer = MAX_MUTATION_TIMER;
 	char w1, w2;
+	char genesToSend[EVENTS];
+	char receiveBuffer1[EVENTS];
+	char receiveBuffer2[EVENTS];
+	MPI_Request request1, request2, req;
+	MPI_Status status;
 	do {
-		if(generation % 100 == 0 && generation != 0) {
-			printf("%d: migrations\n", id, generation);
-			char* genesToSend = getChampion()->decision;
-			for(int i=0; i!=numNodes; i++)
-				MPI_Send(genesToSend, EVENTS, MPI_CHAR, (id + i) % numNodes, MPI_ANY_TAG, MPI_COMM_WORLD);
-			
+		if(id==0 && generation % 1000 == 0)
+			printf("generation: %d\n", generation);
+		if(generation % MIGRATION_TIMER == 0 && generation != 0) {
+			//printf("%d: migrations\n", id);
+
+			char *championGenes = getChampion()->decision;
+			for(int i=0; i!=EVENTS; i++)
+				genesToSend[i] = championGenes[i]; //make a copy to send
+
+			MPI_Isend(genesToSend, EVENTS, MPI_CHAR, (id + 1) % numNodes, MIGRATION_TAG, MPI_COMM_WORLD, &req);
+			MPI_Isend(genesToSend, EVENTS, MPI_CHAR, (id + numNodes - 1) % numNodes, MIGRATION_TAG, MPI_COMM_WORLD, &req);
+
+			MPI_Irecv(receiveBuffer1, EVENTS, MPI_CHAR, MPI_ANY_SOURCE, MIGRATION_TAG, MPI_COMM_WORLD, &request1);
+			MPI_Irecv(receiveBuffer2, EVENTS, MPI_CHAR, MPI_ANY_SOURCE, MIGRATION_TAG, MPI_COMM_WORLD, &request2);
+
+			MPI_Wait(&request1, &status);
+			MPI_Wait(&request2, &status);
 		}
 
 		notdraw = startGames(winners, losers);
+		/*if(notdraw == 0)
+			printf("%d:!\n", generation);*/
 		
 		generation++;
 
-		for(i=0; i!=notdraw; i++) {//kill and replace
-			w1 = winners[rand()%notdraw];
-			w2 = winners[rand()%notdraw];
-			players[losers[i]].birth(players[w1].decision, players[w2].decision); //this could be dirty
+		if(notdraw < 2) {
+			if(notdraw == 1 && generation % MIGRATION_TIMER == 0 && generation != 0) {
+				players[losers[0]].copyGenes(receiveBuffer1);
+				players[rand()%PLAYERS_PER_ROOM].copyGenes(receiveBuffer2);
+			}
+			else if(generation % MIGRATION_TIMER == 0 && generation != 0) {
+				players[rand()%PLAYERS_PER_ROOM].copyGenes(receiveBuffer1);
+				players[rand()%PLAYERS_PER_ROOM].copyGenes(receiveBuffer2);
+			}
+		}
+		else {
+			if(generation % MIGRATION_TIMER == 0 && generation != 0) {
+				i=2;
+				players[losers[0]].copyGenes(receiveBuffer1);
+				players[losers[1]].copyGenes(receiveBuffer2);
+			}
+			else i=0;
+			for(; i!=notdraw; i++) {//kill and replace
+				w1 = winners[rand()%notdraw];
+				w2 = winners[rand()%notdraw];
+				players[losers[i]].birth(players[w1].decision, players[w2].decision); //this could be dirty
+			}
 		}
 
 		if(rand()%mutationTimer <= 1) {
@@ -303,6 +345,16 @@ void Player::mutate() {
 	}
 	
 	decision[i-1] = randomDecision(i-1);
+}
+
+void Player::copyGenes(char* genes) {
+	decisionsMade = 0;
+	for(int i=0; i!=EVENTS; i++) {
+		decision[i] = genes[i];
+		if(decision[i] != 10)
+			decisionsMade++;
+	}
+	wins = 0;
 }
 
 //------------------------------------------------------------

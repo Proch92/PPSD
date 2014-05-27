@@ -9,7 +9,9 @@
 #define EVENTS 19683 //3^9
 #define PLAYERS_PER_ROOM 40
 #define MAX_MUTATION_TIMER 500
+#define MIGRATION_TIMER 50
 #define NAME_BUFFER_SIZE 50
+#define MIGRATION_TAG 1
 
 //game states
 #define GAME_OPEN 0
@@ -34,6 +36,7 @@ public:
 	char makeMove(gameState);
 	void birth(char*, char*);
 	void mutate();
+	void copyGenes(char*);
 	
 	int wins;
 	char *decision; //patrimonio genetico
