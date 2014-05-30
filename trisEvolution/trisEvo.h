@@ -11,7 +11,8 @@
 #define MAX_MUTATION_TIMER 75
 #define MIGRATION_TIMER 50
 #define NAME_BUFFER_SIZE 50
-#define MIGRATION_TAG 1
+#define MIGRATION_TAG_1 1
+#define MIGRATION_TAG_2 2
 
 //game states
 #define GAME_OPEN 0
@@ -21,6 +22,7 @@
 
 using namespace std;
 
+MPI_Datatype genesType;
 typedef int gameState;
 
 char checkGameState(gameState);

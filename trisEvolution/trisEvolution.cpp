@@ -14,6 +14,9 @@ int main(int argc, char** argv) {
 
 	int generationLimit = atoi(argv[1]);
 
+	MPI_Type_vector(EVENTS, 1, 0, MPI_BYTE, &genesType);
+	MPI_Type_commit(&genesType);
+
 	unsigned int *seeds = (unsigned int*) malloc(numNodes * sizeof(unsigned int));
 	if(id == 0) {
 		//generate seeds
@@ -99,62 +102,63 @@ void Room::startHungerGames(int generationLimit) {
 
 	generation = 0;
 	int notdraw;
-	int i;
 	short mutationTimer = MAX_MUTATION_TIMER;
 	char w1, w2;
 	char genesToSend[EVENTS];
 	char receiveBuffer1[EVENTS];
 	char receiveBuffer2[EVENTS];
-	MPI_Request request1, request2, req;
-	MPI_Status status;
+	MPI_Request reqs[4];
+	MPI_Status stats[2];
+	int flag;
 	do {
 		if(id==0 && generation % 1000 == 0)
 			printf("generation: %d\n", generation);
-		if(generation % MIGRATION_TIMER == 0 && generation != 0) {
-			//printf("%d: migrations\n", id);
 
+		notdraw = startGames(winners, losers);
+		generation++;
+
+		if(generation % MIGRATION_TIMER == 0) {
 			char *championGenes = getChampion()->decision;
 			for(int i=0; i!=EVENTS; i++)
 				genesToSend[i] = championGenes[i]; //make a copy to send
 
-			MPI_Isend(genesToSend, EVENTS, MPI_CHAR, (id + 1) % numNodes, MIGRATION_TAG, MPI_COMM_WORLD, &req);
-			MPI_Isend(genesToSend, EVENTS, MPI_CHAR, (id + numNodes - 1) % numNodes, MIGRATION_TAG, MPI_COMM_WORLD, &req);
+			int prev = (id + numNodes - 1) % numNodes;
+			int next = (id + 1) % numNodes;
+			MPI_Irecv(receiveBuffer1, EVENTS, MPI_BYTE, prev, MIGRATION_TAG_1, MPI_COMM_WORLD, &reqs[0]);
+			MPI_Irecv(receiveBuffer2, EVENTS, MPI_BYTE, next, MIGRATION_TAG_2, MPI_COMM_WORLD, &reqs[1]);
 
-			MPI_Irecv(receiveBuffer1, EVENTS, MPI_CHAR, MPI_ANY_SOURCE, MIGRATION_TAG, MPI_COMM_WORLD, &request1);
-			MPI_Irecv(receiveBuffer2, EVENTS, MPI_CHAR, MPI_ANY_SOURCE, MIGRATION_TAG, MPI_COMM_WORLD, &request2);
+			MPI_Isend(genesToSend, EVENTS, MPI_BYTE, prev, MIGRATION_TAG_2, MPI_COMM_WORLD, &reqs[2]);
+			MPI_Isend(genesToSend, EVENTS, MPI_BYTE, next, MIGRATION_TAG_1, MPI_COMM_WORLD, &reqs[3]);
 
-			MPI_Wait(&request1, &status);
-			MPI_Wait(&request2, &status);
+			MPI_Waitall(4, reqs, stats);
 		}
 
-		notdraw = startGames(winners, losers);
-		/*if(notdraw == 0)
-			printf("%d:!\n", generation);*/
-		
-		generation++;
 
-		if(notdraw < 2) {
-			if(notdraw == 1 && generation % MIGRATION_TIMER == 0 && generation != 0) {
-				players[losers[0]].copyGenes(receiveBuffer1);
-				players[rand()%PLAYERS_PER_ROOM].copyGenes(receiveBuffer2);
-			}
-			else if(generation % MIGRATION_TIMER == 0 && generation != 0) {
+		int j = 0;
+		if(generation % MIGRATION_TIMER == 0) {
+			if(notdraw == 0) {
 				players[rand()%PLAYERS_PER_ROOM].copyGenes(receiveBuffer1);
 				players[rand()%PLAYERS_PER_ROOM].copyGenes(receiveBuffer2);
 			}
-		}
-		else {
-			if(generation % MIGRATION_TIMER == 0 && generation != 0) {
-				i=2;
+			else if(notdraw == 1) {
+				players[losers[0]].copyGenes(receiveBuffer1);
+				players[rand()%PLAYERS_PER_ROOM].copyGenes(receiveBuffer2);
+				j=1;
+			}
+			else {
 				players[losers[0]].copyGenes(receiveBuffer1);
 				players[losers[1]].copyGenes(receiveBuffer2);
+				j=2;
 			}
-			else i=0;
-			for(; i!=notdraw; i++) {//kill and replace
-				w1 = winners[rand()%notdraw];
-				w2 = winners[rand()%notdraw];
-				players[losers[i]].birth(players[w1].decision, players[w2].decision); //this could be dirty
-			}
+		}
+
+		if(notdraw == 1)
+			j=1;
+
+		for(; j!=notdraw; j++) {//kill and replace
+			w1 = winners[rand()%notdraw];
+			w2 = winners[rand()%notdraw];
+			players[losers[j]].birth(players[w1].decision, players[w2].decision); //this could be dirty
 		}
 
 		if(rand()%mutationTimer <= 1) {
@@ -212,11 +216,10 @@ int Room::startGames(int *winners, int *losers) {
 
 		char result;
 		char move;
-		char turn = 0;
+		char turn = rand()%2;
 		do {
 			move = duelist[turn]->makeMove(actual); //move is a number from 0 to 8
 			actual += pow(3, move) * (turn+1); //everything is in base 3
-			//turn = (turn==0)?1:0;
 			turn ^= 1;
 		} while((result = checkGameState(actual)) == GAME_OPEN);
 
@@ -240,7 +243,6 @@ int Room::startGames(int *winners, int *losers) {
 			}
 		}
 	}
-
 	draws = d;
 
 	return (PLAYERS_PER_ROOM / 2) - d;
@@ -301,10 +303,6 @@ char Player::randomDecision(gameState state) { //return a number from 0 to 8
 		s = r;
 	}
 
-	if(freePos == 0) {
-		printf("freepos == 0!!!!!!!!!!!!!!\n");
-		printf("state: %d\n", state);
-	}
 	r = rand() % freePos;
 
 	return zeros[r];
@@ -343,7 +341,7 @@ void Player::mutate() {
 			found++;
 		i++;
 	}
-	
+
 	decision[i-1] = randomDecision(i-1);
 }
 
@@ -351,6 +349,7 @@ void Player::copyGenes(char* genes) {
 	decisionsMade = 0;
 	for(int i=0; i!=EVENTS; i++) {
 		decision[i] = genes[i];
+
 		if(decision[i] != 10)
 			decisionsMade++;
 	}
@@ -406,7 +405,6 @@ char humanMove(gameState state) {
 	do {
 		printf("make a choice: (1..9)\n");
 		cin >> choice;
-		printf("choice: %d\n", choice);
 		if(choice > 0 && choice < 10 && freeSpace(state, choice-1))
 			done = true;
 	} while(!done);
