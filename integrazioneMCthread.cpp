@@ -16,8 +16,9 @@
 #include "stdlib.h"
 #include <iostream>
 #include "mpich/mpi.h"
-#include <omp.h>
+//#include <omp.h>
 #include <thread>
+#include <mutex>
 #include "time.h"
 #include "math.h"
 
@@ -27,13 +28,34 @@ typedef struct _vec2 {double x; double y;} vec2;
 
 using namespace std;
 
-int *hits;
+long unsigned int hits;
+mutex mtx;
+thread *threads;
+vec2* randoms;
+vec2 center;
+double radius;
 
 double randomDouble();
+
+void hitta(int i) {
+	//is the point inside the area?
+	//pitagora
+	double d = sqrtl(powl(randoms[i].x - center.x, 2) + powl(randoms[i].y - center.y, 2));
+	
+	if(d < radius) { //hit
+		mtx.lock();
+		hits++;
+		mtx.unlock();
+	}
+}
 
 int main(int argc, char **argv) {
 	if(argc != 2)
 		printf("1 argument expected\nUsage: mpirun -n num_nodes ./imc num_threads\n");
+
+	center.x = 0.5;
+	center.y = 0.5;
+	radius = 0.5;
 
 	//Init
 	int id, numNodes, length;
@@ -45,7 +67,7 @@ int main(int argc, char **argv) {
 	MPI_Get_processor_name(name, &length);		// Il nome del nodo dove il processo è in esecuzione
 
 	int numTasks = atoi(argv[1]);
-	int *hits = (int*) malloc(sizeof(int) * numTasks);
+	thread **threads = (thread**) malloc(sizeof(thread*) * numTasks);
 
 	unsigned int *seeds;
 	if(id == 0) {
@@ -78,37 +100,14 @@ int main(int argc, char **argv) {
 	srand(seed);
 
 	//each node generates his random numbers
-	vec2* randoms = (vec2*) malloc(numTasks * sizeof(vec2));
+	randoms = (vec2*) malloc(numTasks * sizeof(vec2));
 	for(int i=0; i!=numTasks; i++) {
 		randoms[i].x = randomDouble();
 		randoms[i].y = randomDouble();
 	}
 
-	//openMP stuff
-	omp_set_num_threads(MAX_THREADS);
-
-	vec2 center;
-	center.x = 0.5;
-	center.y = 0.5;
-	double radius = 0.5;
-
-	double d;
-	long unsigned int hits;
-	
-	hits = 0;
-
-	#pragma omp parallel for reduction(+:hits)
-	for(int i=0; i<numTasks; i++) {
-		//is the point inside the area?
-		//pitagora
-		d = sqrtl(powl(randoms[i].x - center.x, 2) + powl(randoms[i].y - center.y, 2));
-		if(d < radius) //hit
-			hits++;
-	}
-
-	for(int i=0; i<numTasks; i++) {
-		thread
-	}
+	for(int i=0; i<numTasks; i++)
+		threads[i] = new thread(hitta, i);
 
 	printf("%d: hits = %ld\n", id, hits);
 
