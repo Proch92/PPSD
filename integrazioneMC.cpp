@@ -27,8 +27,6 @@ typedef struct _vec2 {double x; double y;} vec2;
 
 using namespace std;
 
-int *hits;
-
 double randomDouble();
 
 int main(int argc, char **argv) {
@@ -45,7 +43,6 @@ int main(int argc, char **argv) {
 	MPI_Get_processor_name(name, &length);		// Il nome del nodo dove il processo è in esecuzione
 
 	int numTasks = atoi(argv[1]);
-	int *hits = (int*) malloc(sizeof(int) * numTasks);
 
 	unsigned int *seeds;
 	if(id == 0) {
@@ -104,10 +101,6 @@ int main(int argc, char **argv) {
 		d = sqrtl(powl(randoms[i].x - center.x, 2) + powl(randoms[i].y - center.y, 2));
 		if(d < radius) //hit
 			hits++;
-	}
-
-	for(int i=0; i<numTasks; i++) {
-		thread
 	}
 
 	printf("%d: hits = %ld\n", id, hits);
